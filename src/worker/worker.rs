@@ -5,15 +5,16 @@ use uuid::Uuid;
 
 use crate::task::Task;
 
+#[derive(Debug)]
 pub struct Worker {
-    name: String,
+    pub name: String,
     // I think this is a queue of tasks, the book did not say yet.
-    queue: VecDeque<Task>,
+    pub queue: VecDeque<Task>,
     // The book puts Task behind a pointer, I'm not sure if that is done
     // for compactness of the map, or its done to allow for shared ownership
     // and modification of the task. I'm going to assume the latter.
-    db: HashMap<Uuid, Arc<Task>>,
-    task_count: u64,
+    pub db: HashMap<Uuid, Arc<Task>>,
+    pub task_count: u64,
 }
 
 impl Worker {

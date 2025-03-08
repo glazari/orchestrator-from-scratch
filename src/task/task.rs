@@ -18,6 +18,24 @@ pub struct Task {
     pub finish_time: Option<DateTime<Utc>>,
 }
 
+impl Default for Task {
+    fn default() -> Self {
+        Task {
+            id: Uuid::new_v4(),
+            name: "".to_string(),
+            state: State::Pending,
+            image: "".to_string(),
+            memory: 0,
+            disk: 0,
+            exposed_ports: HashSet::new(),
+            port_bindings: HashMap::new(),
+            restart_policy: "".to_string(),
+            start_time: Utc::now(),
+            finish_time: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum State {
     Pending,
@@ -31,8 +49,8 @@ pub enum State {
 // if it turns out we need more sofisticated functionality we can look for a library
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Eq)]
 pub struct Port {
-    number: u16,
-    protocol: Protocol,
+    pub number: u16,
+    pub protocol: Protocol,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Eq)]
@@ -41,10 +59,22 @@ pub enum Protocol {
     Udp,
 }
 
+#[derive(Debug)]
 pub struct TaskEvent {
-    id: Uuid,
-    state: State,
-    timestamp: DateTime<Utc>,
-    task: Task, // TODO: check if this will be a copy of the task or if the idea is
+    pub id: Uuid,
+    pub state: State,
+    pub timestamp: DateTime<Utc>,
+    pub task: Task, // TODO: check if this will be a copy of the task or if the idea is
                 // to modify the task in place :fearful:
+}
+
+impl Default for TaskEvent {
+    fn default() -> Self {
+        TaskEvent {
+            id: Uuid::new_v4(),
+            state: State::Pending,
+            timestamp: Utc::now(),
+            task: Task::default(),
+        }
+    }
 }
