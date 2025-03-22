@@ -1,6 +1,12 @@
 use std::collections::{HashMap, HashSet};
+use std::fmt::{self, Display, Formatter};
+use std::io::Write;
 
+use bollard::container::{self, LogsOptions};
+use bollard::image::CreateImageOptions;
+use bollard::models::{CreateImageInfo, HostConfig, RestartPolicy};
 use chrono::{DateTime, Utc};
+use futures::{executor::block_on, StreamExt};
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -13,7 +19,7 @@ pub struct Task {
     pub disk: u64,
     pub exposed_ports: HashSet<Port>,
     pub port_bindings: HashMap<String, String>,
-    pub restart_policy: String,
+    pub restart_policy: String, // empty, always, unless-stopped, on-failure
     pub start_time: DateTime<Utc>,
     pub finish_time: Option<DateTime<Utc>>,
 }
@@ -53,10 +59,26 @@ pub struct Port {
     pub protocol: Protocol,
 }
 
+impl Port {
+    pub fn to_docker_repr(&self) -> (String, HashMap<(), ()>) {
+        let port = format!("{}/{}", self.number, self.protocol);
+        (port, HashMap::new())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Eq)]
 pub enum Protocol {
     Tcp,
     Udp,
+}
+
+impl Display for Protocol {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Protocol::Tcp => write!(f, "tcp"),
+            Protocol::Udp => write!(f, "udp"),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -65,7 +87,7 @@ pub struct TaskEvent {
     pub state: State,
     pub timestamp: DateTime<Utc>,
     pub task: Task, // TODO: check if this will be a copy of the task or if the idea is
-                // to modify the task in place :fearful:
+                    // to modify the task in place :fearful:
 }
 
 impl Default for TaskEvent {
@@ -77,4 +99,177 @@ impl Default for TaskEvent {
             task: Task::default(),
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct Config {
+    pub name: String,
+    pub attach_stdin: bool,
+    pub attach_stdout: bool,
+    pub attach_stderr: bool,
+    pub exposed_ports: HashSet<Port>,
+    pub cmd: Vec<String>,
+    pub image: String,
+    pub cpu: f64,
+    pub memory: i64,
+    pub disk: u64,
+    pub env: Vec<String>,       // maybe use a pair?
+    pub restart_policy: String, // empty, always, unless-stopped, on-failure
+}
+
+pub struct Docker {
+    pub client: bollard::Docker,
+    pub config: Config,
+    pub container_id: String,
+}
+
+impl Docker {
+    fn run(&mut self) -> DockerResult {
+        let options = CreateImageOptions {
+            from_image: self.config.image.clone(),
+            ..Default::default()
+        };
+        let root_fs = None;
+        let credentials = None;
+        let mut res = self
+            .client
+            .create_image(Some(options), root_fs, credentials);
+
+        // un stream
+        //let res = block_on(res.collect::<Vec<_>>());
+        let single_result: Option<Result<CreateImageInfo, bollard::errors::Error>> =
+            block_on(res.next());
+        let single_result = single_result.map_or_else(
+            || {
+                Err(bollard::errors::Error::DockerResponseServerError {
+                    status_code: 500,
+                    message: "No result".to_string(),
+                })
+            },
+            |x| x,
+        );
+
+        let single_result = match single_result {
+            Ok(x) => x,
+            Err(e) => {
+                return DockerResult {
+                    error: Some(e.to_string()),
+                    action: "run".to_string(),
+                    container_id: "".to_string(),
+                    result: "".to_string(),
+                };
+            }
+        };
+
+        println!("{:?}", single_result);
+        // TODO: do something with the result
+        //
+
+        let restart_policy_name = self
+            .config
+            .restart_policy
+            .parse()
+            .expect("Invalid restart policy");
+
+        let rp = RestartPolicy {
+            name: Some(restart_policy_name),
+            ..RestartPolicy::default()
+        };
+
+        let r = HostConfig {
+            memory: Some(self.config.memory),
+            nano_cpus: Some((self.config.cpu * 1_000_000_000.0) as i64),
+            restart_policy: Some(rp),
+            publish_all_ports: Some(true),
+            ..HostConfig::default()
+        };
+
+        let cc = container::Config {
+            image: Some(self.config.image.clone()),
+            tty: Some(false),
+            env: Some(self.config.env.clone()),
+            exposed_ports: Some(
+                self.config
+                    .exposed_ports
+                    .iter()
+                    .map(|x| x.to_docker_repr())
+                    .collect::<_>(),
+            ),
+            host_config: Some(r),
+            ..container::Config::default()
+        };
+
+        // TODO: create container
+        let options = container::CreateContainerOptions {
+            name: self.config.name.clone(),
+            //TODO: maybe add a platform
+            platform: None,
+        };
+
+        let res = block_on(self.client.create_container(Some(options), cc));
+        let res = match res {
+            Ok(x) => x,
+            Err(e) => {
+                return DockerResult {
+                    error: Some(e.to_string()),
+                    action: "run".to_string(),
+                    container_id: "".to_string(),
+                    result: "".to_string(),
+                };
+            }
+        };
+
+        println!("container create res: {:?}", res);
+
+        let err = block_on(self.client.start_container::<String>(&res.id, None));
+        if let Err(e) = err {
+            return DockerResult {
+                error: Some(e.to_string()),
+                action: "run".to_string(),
+                container_id: "".to_string(),
+                result: "".to_string(),
+            };
+        }
+
+        self.container_id = res.id.clone();
+
+        let options = LogsOptions::<String> {
+            stdout: true,
+            stderr: true,
+            ..LogsOptions::default()
+        };
+        let mut res = self.client.logs(&res.id, Some(options));
+
+        let res: Result<_, _> = block_on(res.next()).unwrap();
+        let res = match res {
+            Ok(x) => x,
+            Err(e) => {
+                return DockerResult {
+                    error: Some(e.to_string()),
+                    action: "run".to_string(),
+                    container_id: "".to_string(),
+                    result: "".to_string(),
+                };
+            }
+        };
+
+        println!("logs: {:?}", res);
+
+        //  write logs to stdout
+        write!(std::io::stdout().lock(), "{}", res).unwrap();
+
+        return DockerResult {
+            error: None,
+            action: "start".to_string(),
+            container_id: self.container_id.clone(),
+            result: "success".to_string(),
+        };
+    }
+}
+
+pub struct DockerResult {
+    pub error: Option<String>,
+    pub action: String,
+    pub container_id: String,
+    pub result: String,
 }

@@ -5,5 +5,7 @@ edition = "2021"
 
 [dependencies]
 axum = "0.8.1"
+bollard = "0.18.1"
 chrono = "0.4.40"
+futures = "0.3.31"
 uuid = { version = "1.15.1", features = ["serde", "v4"] }
