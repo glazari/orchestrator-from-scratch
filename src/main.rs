@@ -1,5 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::default::Default;
+use std::thread;
+use std::time::Duration;
 
 use chrono::Utc;
 use uuid::Uuid;
@@ -9,7 +11,8 @@ use cube::node;
 use cube::task;
 use cube::worker;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     println!("Hello, world!");
     let task = task::Task {
         id: Uuid::new_v4(),
@@ -69,4 +72,57 @@ fn main() {
     };
 
     println!("{:#?}", node);
+
+    println!("Creating container");
+    let (mut docker, result) = create_container().await;
+    if result.error.is_some() {
+        panic!("Error: {}", result.error.unwrap());
+    }
+
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    println!("Stopping container");
+    let result = stop_container(&mut docker).await;
+}
+
+async fn create_container() -> (task::Docker, task::DockerResult) {
+    let c = task::Config {
+        name: "test-container-1".to_string(),
+        image: "postgres:latest".to_string(),
+        env: vec![
+            "POSTGRES_USER=cube".to_string(),
+            "POSTGRES_PASSWORD=secret".to_string(),
+        ],
+        ..Default::default()
+    };
+
+    let dc = bollard::Docker::connect_with_local_defaults().expect("Could not connect to docker");
+    let mut docker = task::Docker {
+        client: dc,
+        config: c,
+        container_id: "".to_string(),
+    };
+
+    let result = docker.run().await;
+    if result.error.is_some() {
+        panic!("Error: {}", result.error.unwrap());
+    }
+
+    println!(
+        "Container {} is running with config {:?}",
+        result.container_id, docker.config
+    );
+
+    (docker, result)
+}
+
+async fn stop_container(docker: &mut task::Docker) -> task::DockerResult {
+    let result = docker.stop().await;
+    if result.error.is_some() {
+        panic!("Error: {}", result.error.unwrap());
+    }
+
+    println!("Container {} stopped", docker.container_id);
+
+    result
 }

@@ -1,6 +1,3 @@
 mod task;
 
-pub use task::Port;
-pub use task::State;
-pub use task::Task;
-pub use task::TaskEvent;
+pub use task::{Config, Docker, DockerResult, Port, State, Task, TaskEvent};

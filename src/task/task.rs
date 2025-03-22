@@ -6,7 +6,7 @@ use bollard::container::{self, LogsOptions};
 use bollard::image::CreateImageOptions;
 use bollard::models::{CreateImageInfo, HostConfig, RestartPolicy};
 use chrono::{DateTime, Utc};
-use futures::{executor::block_on, StreamExt};
+use futures::StreamExt;
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -101,7 +101,7 @@ impl Default for TaskEvent {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Config {
     pub name: String,
     pub attach_stdin: bool,
@@ -124,9 +124,12 @@ pub struct Docker {
 }
 
 impl Docker {
-    fn run(&mut self) -> DockerResult {
+    pub async fn run(&mut self) -> DockerResult {
+        let image = self.config.image.split(":").collect::<Vec<_>>();
         let options = CreateImageOptions {
-            from_image: self.config.image.clone(),
+            from_image: image[0],
+            tag: image[1],
+
             ..Default::default()
         };
         let root_fs = None;
@@ -136,9 +139,8 @@ impl Docker {
             .create_image(Some(options), root_fs, credentials);
 
         // un stream
-        //let res = block_on(res.collect::<Vec<_>>());
         let single_result: Option<Result<CreateImageInfo, bollard::errors::Error>> =
-            block_on(res.next());
+            res.next().await;
         let single_result = single_result.map_or_else(
             || {
                 Err(bollard::errors::Error::DockerResponseServerError {
@@ -206,7 +208,7 @@ impl Docker {
             platform: None,
         };
 
-        let res = block_on(self.client.create_container(Some(options), cc));
+        let res = self.client.create_container(Some(options), cc).await;
         let res = match res {
             Ok(x) => x,
             Err(e) => {
@@ -221,7 +223,7 @@ impl Docker {
 
         println!("container create res: {:?}", res);
 
-        let err = block_on(self.client.start_container::<String>(&res.id, None));
+        let err = self.client.start_container::<String>(&res.id, None).await;
         if let Err(e) = err {
             return DockerResult {
                 error: Some(e.to_string()),
@@ -240,27 +242,73 @@ impl Docker {
         };
         let mut res = self.client.logs(&res.id, Some(options));
 
-        let res: Result<_, _> = block_on(res.next()).unwrap();
+        let mut count = 0;
+        while let Some(res) = res.next().await {
+            let res = match res {
+                Ok(x) => x,
+                Err(e) => {
+                    return DockerResult {
+                        error: Some(e.to_string()),
+                        action: "run".to_string(),
+                        container_id: "".to_string(),
+                        result: "".to_string(),
+                    };
+                }
+            };
+
+            println!("logs: {:?}", res);
+            count += 1;
+            if count > 10 {
+                break;
+            }
+        }
+
+        return DockerResult {
+            error: None,
+            action: "start".to_string(),
+            container_id: self.container_id.clone(),
+            result: "success".to_string(),
+        };
+    }
+
+    pub async fn stop(&mut self) -> DockerResult {
+        println!("stopping container: {}", self.container_id);
+        let res = self.client.stop_container(&self.container_id, None).await;
         let res = match res {
             Ok(x) => x,
             Err(e) => {
                 return DockerResult {
                     error: Some(e.to_string()),
-                    action: "run".to_string(),
-                    container_id: "".to_string(),
+                    action: "stop".to_string(),
+                    container_id: self.container_id.clone(),
                     result: "".to_string(),
                 };
             }
         };
 
-        println!("logs: {:?}", res);
+        println!("container stop res: {:?}", res);
 
-        //  write logs to stdout
-        write!(std::io::stdout().lock(), "{}", res).unwrap();
+        let options = container::RemoveContainerOptions {
+            v: true,
+            link: false,
+            force: false,
+        };
+        let res = self
+            .client
+            .remove_container(&self.container_id, Some(options))
+            .await;
+        if let Err(e) = res {
+            return DockerResult {
+                error: Some(e.to_string()),
+                action: "stop".to_string(),
+                container_id: self.container_id.clone(),
+                result: "".to_string(),
+            };
+        }
 
         return DockerResult {
             error: None,
-            action: "start".to_string(),
+            action: "stop".to_string(),
             container_id: self.container_id.clone(),
             result: "success".to_string(),
         };
