@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Display, Formatter};
-use std::io::Write;
 
 use bollard::container::{self, LogsOptions};
 use bollard::image::CreateImageOptions;
@@ -12,9 +11,11 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 pub struct Task {
     pub id: Uuid,
+    pub container_id: String,
     pub name: String,
     pub state: State,
     pub image: String,
+    pub cpu: f64,
     pub memory: u64,
     pub disk: u64,
     pub exposed_ports: HashSet<Port>,
@@ -28,9 +29,11 @@ impl Default for Task {
     fn default() -> Self {
         Task {
             id: Uuid::new_v4(),
+            container_id: "".to_string(),
             name: "".to_string(),
             state: State::Pending,
             image: "".to_string(),
+            cpu: 0.0,
             memory: 0,
             disk: 0,
             exposed_ports: HashSet::new(),
@@ -117,10 +120,31 @@ pub struct Config {
     pub restart_policy: String, // empty, always, unless-stopped, on-failure
 }
 
+pub fn new_config(t: &Task) -> Config {
+    Config {
+        name: t.name.clone(),
+        exposed_ports: t.exposed_ports.clone(),
+        image: t.image.clone(),
+        cpu: t.cpu,
+        memory: t.memory as i64,
+        disk: t.disk,
+        restart_policy: t.restart_policy.clone(),
+        ..Default::default()
+    }
+
+}
+
 pub struct Docker {
     pub client: bollard::Docker,
     pub config: Config,
-    pub container_id: String,
+}
+
+pub fn new_docker(config: Config) -> Docker {
+    let client = bollard::Docker::connect_with_local_defaults().unwrap();
+    Docker {
+        client,
+        config,
+    }
 }
 
 impl Docker {
@@ -233,7 +257,7 @@ impl Docker {
             };
         }
 
-        self.container_id = res.id.clone();
+        let container_id = res.id.clone();
 
         let options = LogsOptions::<String> {
             stdout: true,
@@ -266,21 +290,21 @@ impl Docker {
         return DockerResult {
             error: None,
             action: "start".to_string(),
-            container_id: self.container_id.clone(),
+            container_id,
             result: "success".to_string(),
         };
     }
 
-    pub async fn stop(&mut self) -> DockerResult {
-        println!("stopping container: {}", self.container_id);
-        let res = self.client.stop_container(&self.container_id, None).await;
+    pub async fn stop(&mut self, id: &str) -> DockerResult {
+        println!("stopping container: {}", id);
+        let res = self.client.stop_container(&id, None).await;
         let res = match res {
             Ok(x) => x,
             Err(e) => {
                 return DockerResult {
                     error: Some(e.to_string()),
                     action: "stop".to_string(),
-                    container_id: self.container_id.clone(),
+                    container_id: id.to_string(),
                     result: "".to_string(),
                 };
             }
@@ -295,13 +319,13 @@ impl Docker {
         };
         let res = self
             .client
-            .remove_container(&self.container_id, Some(options))
+            .remove_container(&id, Some(options))
             .await;
         if let Err(e) = res {
             return DockerResult {
                 error: Some(e.to_string()),
                 action: "stop".to_string(),
-                container_id: self.container_id.clone(),
+                container_id: id.to_string(),
                 result: "".to_string(),
             };
         }
@@ -309,7 +333,7 @@ impl Docker {
         return DockerResult {
             error: None,
             action: "stop".to_string(),
-            container_id: self.container_id.clone(),
+            container_id: id.to_string(),
             result: "success".to_string(),
         };
     }

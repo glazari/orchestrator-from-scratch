@@ -1,6 +1,5 @@
 use std::collections::{HashMap, VecDeque};
 use std::default::Default;
-use std::thread;
 use std::time::Duration;
 
 use chrono::Utc;
@@ -82,7 +81,7 @@ async fn main() {
     tokio::time::sleep(Duration::from_secs(5)).await;
 
     println!("Stopping container");
-    let result = stop_container(&mut docker).await;
+    let _result = stop_container(&mut docker, &result.container_id).await;
 }
 
 async fn create_container() -> (task::Docker, task::DockerResult) {
@@ -100,7 +99,6 @@ async fn create_container() -> (task::Docker, task::DockerResult) {
     let mut docker = task::Docker {
         client: dc,
         config: c,
-        container_id: "".to_string(),
     };
 
     let result = docker.run().await;
@@ -116,13 +114,13 @@ async fn create_container() -> (task::Docker, task::DockerResult) {
     (docker, result)
 }
 
-async fn stop_container(docker: &mut task::Docker) -> task::DockerResult {
-    let result = docker.stop().await;
+async fn stop_container(docker: &mut task::Docker, id: &str) -> task::DockerResult {
+    let result = docker.stop(id).await;
     if result.error.is_some() {
         panic!("Error: {}", result.error.unwrap());
     }
 
-    println!("Container {} stopped", docker.container_id);
+    println!("Container {} stopped", id);
 
     result
 }

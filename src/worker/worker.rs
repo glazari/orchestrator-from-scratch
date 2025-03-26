@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 
-use crate::task::Task;
+use crate::task::{Task, self};
 
 #[derive(Debug)]
 pub struct Worker {
@@ -28,6 +28,9 @@ impl Worker {
         println!("I will start a task");
     }
     pub fn stop_task(&self) -> () {
-        println!("I will stop a task");
+        //let config = task::new_config(&t);
+        //let d = task::new_docker(config);
+
+       // let result = d.stop().await;
     }
 }
