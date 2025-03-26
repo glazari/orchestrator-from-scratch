@@ -144,7 +144,7 @@ pub fn new_docker(config: Config) -> Docker {
 }
 
 impl Docker {
-    pub async fn run(&mut self) -> DockerResult {
+    pub async fn run(&self) -> DockerResult {
         let image = self.config.image.split(":").collect::<Vec<_>>();
         let options = CreateImageOptions {
             from_image: image[0],

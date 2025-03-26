@@ -42,9 +42,9 @@ async fn main() {
 
     println!("{:#?}", worker);
     worker.collect_stats();
-    worker.run_task();
-    worker.start_task();
-    worker.stop_task(task).await;
+    worker.run_task().await;
+    //worker.start_task(task.clone()).await;
+    //worker.stop_task(task).await;
 
     let manager = manager::Manager {
         pending: VecDeque::new(),
@@ -96,7 +96,7 @@ async fn create_container() -> (task::Docker, task::DockerResult) {
     };
 
     let dc = bollard::Docker::connect_with_local_defaults().expect("Could not connect to docker");
-    let mut docker = task::Docker {
+    let docker = task::Docker {
         client: dc,
         config: c,
     };
