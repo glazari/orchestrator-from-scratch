@@ -145,11 +145,12 @@ pub fn new_docker(config: Config) -> Docker {
 
 impl Docker {
     pub async fn run(&self) -> DockerResult {
+        println!("running container: {:?}", self.config);
         let image = self.config.image.split(":").collect::<Vec<_>>();
+        let (image, tag) = (image[0], image.get(1).unwrap_or(&""));
         let options = CreateImageOptions {
-            from_image: image[0],
-            tag: image[1],
-
+            from_image: image,
+            tag,
             ..Default::default()
         };
         let root_fs = None;

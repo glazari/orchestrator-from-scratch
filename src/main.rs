@@ -12,6 +12,38 @@ use cube::worker;
 
 #[tokio::main]
 async fn main() {
+    let mut w = worker::Worker::new("Worker 1");
+
+    let mut t = task::Task {
+        id: Uuid::new_v4(),
+        name: "test-container-1".to_string(),
+        state: task::State::Scheduled,
+        image: "strm/helloworld-http".to_string(),
+        ..Default::default()
+    };
+
+    println!("starting task");
+    w.add_task(t.clone());
+    let result = w.run_task().await;
+    if result.error.is_some() {
+        panic!("Error: {}", result.error.unwrap());
+    }
+
+    t.container_id = result.container_id;
+    println!("task {} is running in container {} ", t.id, t.container_id);
+    println!("Sleepy time");
+    tokio::time::sleep(Duration::from_secs(30)).await;
+
+    println!("stopping task");
+    t.state = task::State::Completed;
+    w.add_task(t.clone());
+    let result = w.run_task().await;
+    if result.error.is_some() {
+        panic!("Error: {}", result.error.unwrap());
+    }
+}
+
+async fn main_old() {
     println!("Hello, world!");
     let task = task::Task {
         id: Uuid::new_v4(),

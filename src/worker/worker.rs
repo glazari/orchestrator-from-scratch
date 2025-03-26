@@ -18,6 +18,15 @@ pub struct Worker {
 }
 
 impl Worker {
+    pub fn new(name: &str) -> Worker {
+        Worker {
+            name: name.to_string(),
+            queue: VecDeque::new(),
+            db: HashMap::new(),
+            task_count: 0,
+        }
+    }
+
     pub fn collect_stats(&self) -> () {
         println!("I will collect stats");
     }
