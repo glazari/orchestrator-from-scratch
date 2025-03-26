@@ -33,7 +33,7 @@ async fn main() {
     println!("{:#?}", task);
     println!("{:#?}", task_event);
 
-    let worker = worker::Worker {
+    let mut worker = worker::Worker {
         name: "Worker 1".to_string(),
         queue: VecDeque::new(),
         db: HashMap::new(),
@@ -44,7 +44,7 @@ async fn main() {
     worker.collect_stats();
     worker.run_task();
     worker.start_task();
-    worker.stop_task();
+    worker.stop_task(task).await;
 
     let manager = manager::Manager {
         pending: VecDeque::new(),

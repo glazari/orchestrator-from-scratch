@@ -131,7 +131,6 @@ pub fn new_config(t: &Task) -> Config {
         restart_policy: t.restart_policy.clone(),
         ..Default::default()
     }
-
 }
 
 pub struct Docker {
@@ -141,10 +140,7 @@ pub struct Docker {
 
 pub fn new_docker(config: Config) -> Docker {
     let client = bollard::Docker::connect_with_local_defaults().unwrap();
-    Docker {
-        client,
-        config,
-    }
+    Docker { client, config }
 }
 
 impl Docker {
@@ -295,7 +291,7 @@ impl Docker {
         };
     }
 
-    pub async fn stop(&mut self, id: &str) -> DockerResult {
+    pub async fn stop(&self, id: &str) -> DockerResult {
         println!("stopping container: {}", id);
         let res = self.client.stop_container(&id, None).await;
         let res = match res {
@@ -317,10 +313,7 @@ impl Docker {
             link: false,
             force: false,
         };
-        let res = self
-            .client
-            .remove_container(&id, Some(options))
-            .await;
+        let res = self.client.remove_container(&id, Some(options)).await;
         if let Err(e) = res {
             return DockerResult {
                 error: Some(e.to_string()),

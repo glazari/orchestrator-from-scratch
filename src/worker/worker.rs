@@ -1,9 +1,9 @@
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
 
+use chrono::Utc;
 use uuid::Uuid;
 
-use crate::task::{Task, self};
+use crate::task::{self, Task};
 
 #[derive(Debug)]
 pub struct Worker {
@@ -13,7 +13,7 @@ pub struct Worker {
     // The book puts Task behind a pointer, I'm not sure if that is done
     // for compactness of the map, or its done to allow for shared ownership
     // and modification of the task. I'm going to assume the latter.
-    pub db: HashMap<Uuid, Arc<Task>>,
+    pub db: HashMap<Uuid, Task>,
     pub task_count: u64,
 }
 
@@ -27,10 +27,21 @@ impl Worker {
     pub fn start_task(&self) -> () {
         println!("I will start a task");
     }
-    pub fn stop_task(&self) -> () {
-        //let config = task::new_config(&t);
-        //let d = task::new_docker(config);
+    pub async fn stop_task(&mut self, mut t: Task) -> task::DockerResult {
+        let config = task::new_config(&t);
+        let d = task::new_docker(config);
 
-       // let result = d.stop().await;
+        let result = d.stop(&t.container_id).await;
+        if result.error.is_some() {
+            println!("Error stopping task: {:?}", result.error.as_ref().unwrap());
+        }
+        t.finish_time = Some(Utc::now());
+        t.state = task::State::Completed;
+        println!(
+            "Stopped and removed container {:?} for task {:?}",
+            t.container_id, t.id
+        );
+        self.db.insert(t.id, t);
+        return result;
     }
 }

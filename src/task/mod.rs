@@ -1,3 +1,5 @@
 mod task;
 
-pub use task::{Config, Docker, DockerResult, Port, State, Task, TaskEvent, new_config, new_docker};
+pub use task::{
+    new_config, new_docker, Config, Docker, DockerResult, Port, State, Task, TaskEvent,
+};
