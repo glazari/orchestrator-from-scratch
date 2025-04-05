@@ -6,9 +6,11 @@ use bollard::image::CreateImageOptions;
 use bollard::models::{CreateImageInfo, HostConfig, RestartPolicy};
 use chrono::{DateTime, Utc};
 use futures::StreamExt;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Task {
     pub id: Uuid,
     pub container_id: String,
@@ -45,7 +47,8 @@ impl Default for Task {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum State {
     Pending,
     Scheduled,
@@ -56,7 +59,7 @@ pub enum State {
 
 // for now, defining my own port struct
 // if it turns out we need more sofisticated functionality we can look for a library
-#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, Serialize, Deserialize)]
 pub struct Port {
     pub number: u16,
     pub protocol: Protocol,
@@ -69,7 +72,7 @@ impl Port {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, Serialize, Deserialize)]
 pub enum Protocol {
     Tcp,
     Udp,
@@ -84,13 +87,13 @@ impl Display for Protocol {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TaskEvent {
     pub id: Uuid,
     pub state: State,
     pub timestamp: DateTime<Utc>,
-    pub task: Task, // TODO: check if this will be a copy of the task or if the idea is
-                    // to modify the task in place :fearful:
+    pub task: Task,
 }
 
 impl Default for TaskEvent {
@@ -338,4 +341,80 @@ pub struct DockerResult {
     pub action: String,
     pub container_id: String,
     pub result: String,
+}
+
+impl DockerResult {
+    pub fn error(err: &str) -> Self {
+        DockerResult {
+            error: Some(err.to_string()),
+            action: "".to_string(),
+            container_id: "".to_string(),
+            result: "".to_string(),
+        }
+    }
+    pub fn success(action: &str, container_id: &str, result: &str) -> Self {
+        DockerResult {
+            error: None,
+            action: action.to_string(),
+            container_id: container_id.to_string(),
+            result: result.to_string(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_serilize() {
+        let states = vec![
+            (State::Pending, "pending"),
+            (State::Scheduled, "scheduled"),
+            (State::Running, "running"),
+            (State::Completed, "completed"),
+        ];
+
+        for (state, expected) in states {
+            let serialized = serde_json::to_string(&state).unwrap();
+            assert_eq!(serialized, format!("\"{}\"", expected));
+            let deserialized: State = serde_json::from_str(&serialized).unwrap();
+            assert_eq!(deserialized, state);
+        }
+
+        let task = Task {
+            id: Uuid::new_v4(),
+            container_id: "container_id".to_string(),
+            name: "task_name".to_string(),
+            state: State::Pending,
+            image: "image_name".to_string(),
+            cpu: 0.5,
+            memory: 1024,
+            disk: 10,
+            exposed_ports: HashSet::new(),
+            port_bindings: HashMap::new(),
+            restart_policy: "always".to_string(),
+            start_time: Utc::now(),
+            finish_time: None,
+        };
+        let serialized = serde_json::to_string(&task).unwrap();
+        println!("Serialized task: {}", serialized);
+        let deserialized: Task = serde_json::from_str(&serialized).unwrap();
+        println!("Deserialized task: {:?}", deserialized);
+
+        let task_str = r#"{
+        "id": "01a0abaa-0219-4847-b0ba-92fdf4570a57",
+        "state": "running",
+        "task": {
+            "id": "01a0abaa-0219-4847-b0ba-92fdf4570a57",
+            "state": "running",
+            "name": "test-chapter-5",
+            "image": "strm/helloworld"
+        }
+    }"#;
+        let task: TaskEvent = serde_json::from_str(task_str).unwrap();
+        println!("Deserialized task: {:#?}", task);
+
+        assert_eq!(1, 0);
+    }
 }

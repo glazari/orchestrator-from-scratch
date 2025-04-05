@@ -1,8 +1,10 @@
 use std::collections::{HashMap, VecDeque};
 use std::default::Default;
+use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
+use tracing::info;
 use uuid::Uuid;
 
 use cube::manager;
@@ -12,7 +14,42 @@ use cube::worker;
 
 #[tokio::main]
 async fn main() {
-    let mut w = worker::Worker::new("Worker 1");
+    tracing_subscriber::fmt::init();
+    let host = "localhost";
+    let port = 8901;
+    info!("Starting Cube worker on {}:{}", host, port);
+
+    let worker = worker::Worker::new("Worker 1");
+    let worker = Arc::new(worker);
+    let api = worker::api::setup(host, port, worker.clone());
+
+    tokio::spawn(run_tasks(worker));
+    api.start().await;
+}
+
+async fn run_tasks(w: Arc<worker::Worker>) {
+    let delay = Duration::from_secs(10);
+    loop {
+        info!("Sleeping for {} seconds", delay.as_secs());
+        tokio::time::sleep(delay).await;
+
+        let len = w.queue.lock().unwrap().len();
+
+        if len == 0 {
+            info!("No tasks in queue");
+            continue;
+        }
+
+        let result = w.run_task().await;
+        if result.error.is_some() {
+            info!("Error Running task: {}", result.error.unwrap());
+        }
+    }
+}
+
+#[allow(dead_code)]
+async fn main_old2() {
+    let w = worker::Worker::new("Worker 1");
 
     let mut t = task::Task {
         id: Uuid::new_v4(),
@@ -43,6 +80,7 @@ async fn main() {
     }
 }
 
+#[allow(dead_code)]
 async fn main_old() {
     println!("Hello, world!");
     let task = task::Task {
@@ -65,12 +103,7 @@ async fn main_old() {
     println!("{:#?}", task);
     println!("{:#?}", task_event);
 
-    let mut worker = worker::Worker {
-        name: "Worker 1".to_string(),
-        queue: VecDeque::new(),
-        db: HashMap::new(),
-        task_count: 0,
-    };
+    let worker = worker::Worker::new("Worker 1");
 
     println!("{:#?}", worker);
     worker.collect_stats();
