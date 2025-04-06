@@ -1,4 +1,5 @@
-pub mod worker;
 pub mod api;
+pub mod stats;
+pub mod worker;
 
-pub use worker::Worker;
+pub use worker::{collect_stats, Worker};

@@ -28,6 +28,9 @@ curl -v --request POST \
 
 curl -v --request DELETE \
     localhost:8901/tasks/${uuid}
+
+
+curl localhost:8901/stats | jq '.'
 ```
 
 
@@ -39,3 +42,4 @@ curl -v --request DELETE \
 - Part 2: Worker
 - [x] Chapter 4: V0 of Worker
 - [x] Chapter 5: Worker API
+- [x] Chapter 6: Worker Metrics

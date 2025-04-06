@@ -23,6 +23,7 @@ async fn main() {
     let worker = Arc::new(worker);
     let api = worker::api::setup(host, port, worker.clone());
 
+    tokio::spawn(worker::collect_stats(worker.clone()));
     tokio::spawn(run_tasks(worker));
     api.start().await;
 }
@@ -104,9 +105,10 @@ async fn main_old() {
     println!("{:#?}", task_event);
 
     let worker = worker::Worker::new("Worker 1");
+    let worker = Arc::new(worker);
 
     println!("{:#?}", worker);
-    worker.collect_stats();
+    worker::collect_stats(worker.clone()).await;
     worker.run_task().await;
     //worker.start_task(task.clone()).await;
     //worker.stop_task(task).await;

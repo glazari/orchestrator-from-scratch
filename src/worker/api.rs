@@ -2,11 +2,13 @@ use std::sync::Arc;
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use axum::response::IntoResponse;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use tracing::info;
 use uuid::Uuid;
 
+use super::stats::Stats;
 use super::worker::Worker;
 use crate::task::{self, Task, TaskEvent};
 
@@ -31,6 +33,7 @@ pub fn setup(address: &str, port: u16, worker: Arc<Worker>) -> Api {
         .route("/tasks", post(start_task))
         .route("/tasks", get(get_task))
         .route("/tasks/{task_id}", delete(stop_task))
+        .route("/stats", get(get_stats))
         .with_state(worker);
     Api {
         address: address.to_string(),
@@ -72,4 +75,10 @@ async fn stop_task(
     w.add_task(task_to_stop);
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn get_stats(State(w): AppState) -> Json<Stats> {
+    let stats = w.stats.load().as_ref().clone();
+    info!("worker: Getting stats {:?}", stats);
+    Json(stats)
 }

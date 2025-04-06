@@ -1,10 +1,13 @@
 use std::collections::{HashMap, VecDeque};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
+use arc_swap::ArcSwap;
 use chrono::Utc;
 use tracing::{error, info};
 use uuid::Uuid;
 
+use super::stats::{self, Stats};
 use crate::task::{self, Task};
 
 #[derive(Debug)]
@@ -13,6 +16,7 @@ pub struct Worker {
     // maybe use a different data structure here for the queue
     pub queue: Mutex<VecDeque<Task>>,
     pub db: Mutex<HashMap<Uuid, Task>>,
+    pub stats: ArcSwap<Stats>,
     pub task_count: u64,
 }
 
@@ -22,13 +26,11 @@ impl Worker {
             name: name.to_string(),
             queue: Mutex::new(VecDeque::new()),
             db: Mutex::new(HashMap::new()),
+            stats: ArcSwap::new(Arc::new(stats::get_stats())),
             task_count: 0,
         }
     }
 
-    pub fn collect_stats(&self) -> () {
-        info!("I will collect stats");
-    }
     pub fn add_task(&self, t: Task) {
         // TODO: think of a way to deal with lock errors like this.
         self.queue.lock().unwrap().push_back(t);
@@ -100,5 +102,14 @@ impl Worker {
         );
         self.db.lock().unwrap().insert(t.id, t);
         return result;
+    }
+}
+
+pub async fn collect_stats(worker: Arc<Worker>) -> () {
+    loop {
+        info!("Collecting stats");
+        let stats = stats::get_stats();
+        worker.stats.store(Arc::new(stats));
+        tokio::time::sleep(Duration::from_secs(10)).await;
     }
 }
