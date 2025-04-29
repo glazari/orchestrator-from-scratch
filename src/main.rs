@@ -6,6 +6,7 @@ use std::time::Duration;
 use chrono::Utc;
 use tracing::info;
 use uuid::Uuid;
+use tokio::sync::Mutex;
 
 use cube::manager;
 use cube::node;
@@ -114,18 +115,19 @@ async fn main_old() {
     //worker.stop_task(task).await;
 
     let manager = manager::Manager {
-        pending: VecDeque::new(),
-        task_db: HashMap::new(),
-        event_db: HashMap::new(),
+        pending: Mutex::new(VecDeque::new()),
+        task_db: Mutex::new(HashMap::new()),
+        event_db: Mutex::new(HashMap::new()),
         workers: Vec::new(),
-        worker_task_map: HashMap::new(),
-        task_worker_map: HashMap::new(),
+        worker_task_map: Mutex::new(HashMap::new()),
+        task_worker_map: Mutex::new(HashMap::new()),
+        last_worker: Mutex::new(0), // to keep track of the last worker used
     };
 
     println!("{:#?}", manager);
-    manager.select_worker();
-    manager.update_tasks();
-    manager.send_work();
+    manager.select_worker().await;
+    manager.update_tasks().await;
+    manager.send_work().await;
 
     let node = node::Node {
         name: "Node 1".to_string(),
