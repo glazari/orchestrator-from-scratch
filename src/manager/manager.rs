@@ -30,6 +30,10 @@ impl Manager {
         let mut pending = self.pending.lock().await;
         pending.push_back(te);
     }
+    pub async fn get_tasks(&self) -> Vec<Task> {
+        let task_db = self.task_db.lock().await;
+        task_db.values().cloned().collect()
+    }
     pub async fn select_worker(&self) -> String {
         let mut value = self.last_worker.lock().await;
         let new_value = (*value + 1) % self.workers.len();
