@@ -38,7 +38,7 @@ impl Worker {
     pub async fn run_task(&self) -> task::DockerResult {
         let t = self.queue.lock().unwrap().pop_front();
         if t.is_none() {
-            info!("No tasks in queue");
+            info!("[WORKER] No tasks in queue");
             return task::DockerResult::success("", "", "");
         }
 
@@ -51,7 +51,7 @@ impl Worker {
 
         if !task::is_valid_transition(persisted_t.state, t.state) {
             let err = format!(
-                "Invalid state transition from {:?} to {:?}\n",
+                "[WORKER] Invalid state transition from {:?} to {:?}\n",
                 persisted_t.state, t.state
             );
             error!("{}", err);
@@ -62,7 +62,7 @@ impl Worker {
             task::State::Scheduled => self.start_task(t).await,
             task::State::Completed => self.stop_task(t).await,
             _ => {
-                error!("Invalid state transition to {:?}", t.state);
+                error!("[WORKER] Invalid state transition to {:?}", t.state);
                 task::DockerResult::error("Invalid state transition")
             }
         }
@@ -75,7 +75,7 @@ impl Worker {
         let result = d.run().await;
         if result.error.is_some() {
             let error = result.error.as_ref().unwrap();
-            println!("Error running task {:?}: {}", t.id, error);
+            error!("[WORKER] Error running task {:?}: {}", t.id, error);
             t.state = task::State::Failed;
             self.db.lock().unwrap().insert(t.id, t);
             return result;
@@ -92,12 +92,12 @@ impl Worker {
 
         let result = d.stop(&t.container_id).await;
         if result.error.is_some() {
-            println!("Error stopping task: {:?}", result.error.as_ref().unwrap());
+            error!("[WORKER] Error stopping task: {:?}", result.error.as_ref().unwrap());
         }
         t.finish_time = Some(Utc::now());
         t.state = task::State::Completed;
-        println!(
-            "Stopped and removed container {:?} for task {:?}",
+        error!(
+            "[WORKER] Stopped and removed container {:?} for task {:?}",
             t.container_id, t.id
         );
         self.db.lock().unwrap().insert(t.id, t);
@@ -107,7 +107,7 @@ impl Worker {
 
 pub async fn collect_stats(worker: Arc<Worker>) -> () {
     loop {
-        info!("Collecting stats");
+        info!("[WORKER] Collecting stats");
         let stats = stats::get_stats();
         worker.stats.store(Arc::new(stats));
         tokio::time::sleep(Duration::from_secs(10)).await;

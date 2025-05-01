@@ -44,7 +44,7 @@ pub fn setup(address: &str, port: u16, worker: Arc<Worker>) -> Api {
 // TODO have a default 400 response for all routes
 async fn start_task(State(w): AppState, Json(te): Json<TaskEvent>) -> (StatusCode, Json<Task>) {
     w.add_task(te.task.clone());
-    info!("worker: Added task {:?}", te.task.id);
+    info!("[WORKER] Added task {:?}", te.task.id);
     (StatusCode::CREATED, Json(te.task))
 }
 
@@ -53,7 +53,7 @@ async fn get_task(State(w): AppState) -> Json<Vec<Task>> {
         let db = w.db.lock().expect("Failed to lock worker db");
         db.values().cloned().collect::<Vec<Task>>()
     };
-    info!("worker: Getting tasks {:?}", tasks);
+    info!("[WORKER] Getting tasks {:?}", tasks);
     Json(tasks.clone())
 }
 
@@ -70,7 +70,7 @@ async fn stop_task(
     task_to_stop.state = task::State::Completed;
 
     let (id, container_id) = (&task_to_stop.id, &task_to_stop.container_id);
-    info!("added task {:?} to stop container {:?}", id, container_id);
+    info!("[WORKER] added task {:?} to stop container {:?}", id, container_id);
     w.add_task(task_to_stop);
 
     Ok(StatusCode::NO_CONTENT)
@@ -78,6 +78,6 @@ async fn stop_task(
 
 async fn get_stats(State(w): AppState) -> Json<Stats> {
     let stats = w.stats.load().as_ref().clone();
-    info!("worker: Getting stats {:?}", stats);
+    info!("[WORKER] Getting stats {:?}", stats);
     Json(stats)
 }

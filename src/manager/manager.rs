@@ -5,6 +5,7 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::task::{self, Task, TaskEvent};
+use crate::worker;
 
 #[derive(Debug)]
 pub struct Manager {
@@ -37,32 +38,34 @@ impl Manager {
     }
     pub async fn update_tasks(&self) -> () {
         for worker in &self.workers {
-            println!("Checking worker {} for task updates", worker);
+            info!("[MANAGER] Checking worker {} for task updates", worker);
             let url = format!("http://{}/tasks", worker);
             let client = reqwest::Client::new();
             let res = client.get(&url).send().await;
 
             if res.is_err() {
-                println!("Error connecting to {}: {}", worker, res.err().unwrap());
+                let err = res.err().unwrap();
+                error!("[MANAGER] Error connecting to {}: {}", worker, err);
                 continue;
             }
             let res = res.unwrap();
 
             if !res.status().is_success() {
-                println!("Error getting tasks from {}: {}", worker, res.status());
+                let sts = res.status();
+                error!("[MANAGER] Error getting tasks from {}: {}", worker, sts);
                 continue;
             }
 
             let tasks = res.json::<Vec<Task>>().await;
             if tasks.is_err() {
-                println!("Error decoding response: {:?}", tasks.err());
+                error!("[MANAGER] Error decoding response: {:?}", tasks.err());
                 continue;
             }
 
             let tasks = tasks.unwrap();
             let mut task_db = self.task_db.lock().await;
             for task in tasks {
-                println!("Attempting to update task {}", task.id);
+                info!("[MANAGER] Attempting to update task {}", task.id);
 
                 let db_task = task_db.get_mut(&task.id);
                 db_task.map(|t| {
@@ -78,7 +81,7 @@ impl Manager {
         // holds the lock only for this line
         let e = self.pending.lock().await.pop_front();
         if e.is_none() {
-            println!("No tasks in queue");
+            info!("[MANAGER] No tasks in queue");
             return;
         }
         let te = e.unwrap();
@@ -89,7 +92,7 @@ impl Manager {
 
         let w = self.select_worker().await;
 
-        info!("pulled {:?} from queue", task);
+        info!("[MANAGER] pulled {:?} from queue", task);
 
         // transactional like update. This potentially holds the
         // lock for longer than its needed, but at least we dont worry about
@@ -110,35 +113,26 @@ impl Manager {
         }
 
         // send the task to the worker
-        let data = serde_json::to_string(&task).expect("Failed to serialize task");
-        let client = reqwest::Client::new();
-        let url = format!("http://{}/tasks", w);
-        info!("Sending task to worker: {:?}", url);
-        let res = client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .body(data)
-            .send()
-            .await;
-        if res.is_err() {
-            error!("Error sending task to worker: {:?}", res.err());
-            self.pending.lock().await.push_back(te);
-            return;
-        }
-        let res = res.unwrap();
-        if !res.status().is_success() {
-            let status = res.status();
-            let err = res.text().await;
-            error!("Error sending task to worker: {:?}, {:?}", status, err);
-            return;
-        }
-        let task = res.json::<Task>().await;
-        if task.is_err() {
-            error!("Error decoding response: {:?}", task.err());
-            return;
-        }
-        let task = task.unwrap();
-        info!("Task sent to worker: {:?}", task);
+        let client = worker::Client::new(&w);
+        let res = client.start_task(&te).await;
+
+        let task = match res {
+            Ok(task) => task,
+            Err(e) => match e {
+                // Only if we don't reach the worker we will retry, otherwise we log the error and
+                // give up.
+                worker::client::Error::ErrorReachingWorker(e) => {
+                    error!("[MANAGER] Error reaching worker: {:?}", e);
+                    self.pending.lock().await.push_back(te);
+                    return;
+                }
+                _ => {
+                    error!("[MANAGER] Error sending task to worker: {:?}", e);
+                    return;
+                }
+            },
+        };
+        info!("[MANAGER] Task sent to worker: {:?}", task);
     }
 
     pub fn new(workers: Vec<String>) -> Self {
