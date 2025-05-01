@@ -45,4 +45,4 @@ curl localhost:8901/stats | jq '.'
 - [x] Chapter 6: Worker Metrics
 - Part 3 Manager:
 - [ ] Chapter 7: Manager methods
-    - [ ] udpate_tasks
+    - [ ] check invalid transition pending to pending

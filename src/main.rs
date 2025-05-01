@@ -4,9 +4,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
+use tokio::sync::Mutex;
 use tracing::info;
 use uuid::Uuid;
-use tokio::sync::Mutex;
 
 use cube::manager;
 use cube::node;
@@ -26,7 +26,56 @@ async fn main() {
 
     tokio::spawn(worker::collect_stats(worker.clone()));
     tokio::spawn(run_tasks(worker));
-    api.start().await;
+    tokio::spawn(api.start());
+
+    // start Manager
+    let workers = vec![format!("{}:{}", host, port)];
+    let n_workers = workers.len();
+    let manager = manager::Manager::new(workers.clone());
+    let manager = Arc::new(manager);
+
+    // adding tasks to manager
+    for i in 0..3 {
+        info!("[Manager] Adding task {}", i);
+        let task = task::Task {
+            id: Uuid::new_v4(),
+            name: format!("test-container-{}", i),
+            state: task::State::Scheduled,
+            image: "strm/helloworld-http".to_string(),
+            ..Default::default()
+        };
+
+        let task_event = task::TaskEvent {
+            id: Uuid::new_v4(),
+            state: task::State::Running,
+            task,
+            ..Default::default()
+        };
+        manager.add_task(task_event).await;
+        manager.send_work().await;
+    }
+
+    // start manager update
+    let mgr = Arc::clone(&manager);
+    tokio::spawn(async move {
+        loop {
+            info!("[Manager] Updating tasks from {} workers", n_workers);
+            mgr.update_tasks().await;
+            tokio::time::sleep(Duration::from_secs(15)).await;
+        }
+    });
+
+    // small delay so that update_tasks and task display do not contend on lock
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    // print all tasks in manager
+    loop {
+        let task_db = manager.task_db.lock().await;
+        for (id, task) in task_db.iter() {
+            info!("Task ID: {}, State: {:?}", id, task.state);
+        }
+        tokio::time::sleep(Duration::from_secs(15)).await;
+    }
 }
 
 async fn run_tasks(w: Arc<worker::Worker>) {

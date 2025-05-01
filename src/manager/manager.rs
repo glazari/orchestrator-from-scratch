@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use tokio::sync::Mutex;
 
-use tracing::info;
+use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::task::{self, Task, TaskEvent};
@@ -112,38 +112,36 @@ impl Manager {
         // send the task to the worker
         let data = serde_json::to_string(&task).expect("Failed to serialize task");
         let client = reqwest::Client::new();
+        let url = format!("http://{}/tasks", w);
+        info!("Sending task to worker: {:?}", url);
         let res = client
-            .post(&format!("http://{}/task", w))
+            .post(&url)
             .header("Content-Type", "application/json")
             .body(data)
             .send()
             .await;
         if res.is_err() {
-            println!("Error sending task to worker: {:?}", res.err());
+            error!("Error sending task to worker: {:?}", res.err());
             self.pending.lock().await.push_back(te);
             return;
         }
         let res = res.unwrap();
         if !res.status().is_success() {
-            println!("Error sending task to worker: {:?}", res.status());
+            let status = res.status();
             let err = res.text().await;
-            println!("Error sending task to worker: {:?}", err);
+            error!("Error sending task to worker: {:?}, {:?}", status, err);
             return;
         }
         let task = res.json::<Task>().await;
         if task.is_err() {
-            println!("Error decoding response: {:?}", task.err());
+            error!("Error decoding response: {:?}", task.err());
             return;
         }
         let task = task.unwrap();
-        println!("Task sent to worker: {:?}", task);
+        info!("Task sent to worker: {:?}", task);
     }
 
-    fn new(workers: Vec<&str>) -> Self {
-        let workers = workers
-            .iter()
-            .map(|s| s.to_string())
-            .collect::<Vec<String>>();
+    pub fn new(workers: Vec<String>) -> Self {
         let worker_task_map = workers
             .iter()
             .map(|s| (s.clone(), Vec::new()))
