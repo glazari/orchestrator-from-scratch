@@ -7,7 +7,7 @@ use axum::{Json, Router};
 use tracing::info;
 use uuid::Uuid;
 
-use super::Manager;
+use super::manager::{self, Manager};
 use crate::task::{self, Task, TaskEvent};
 
 type AppState = State<Arc<Manager>>;
@@ -26,9 +26,15 @@ impl Api {
     }
 }
 
+pub async fn start_api(api: Api, manager: Arc<Manager>) {
+    tokio::spawn(manager::process_tasks(manager.clone()));
+    tokio::spawn(manager::update_tasks_loop(manager.clone()));
+    api.start().await;
+}
+
 pub fn setup(address: &str, port: u16, manager: Arc<Manager>) -> Api {
     let router = Router::new()
-        .route("/tasks", post(create_task))
+        .route("/tasks", post(start_task_handler))
         .route("/tasks", get(get_tasks))
         .route("/tasks/{task_id}", delete(stop_task))
         .with_state(manager);
@@ -40,7 +46,7 @@ pub fn setup(address: &str, port: u16, manager: Arc<Manager>) -> Api {
 }
 
 // TODO have a default 400 response for all routes
-async fn create_task(
+async fn start_task_handler(
     State(manager): AppState,
     Json(te): Json<TaskEvent>,
 ) -> (StatusCode, Json<Task>) {

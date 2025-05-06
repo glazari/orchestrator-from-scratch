@@ -20,6 +20,26 @@ pub struct Worker {
     pub task_count: u64,
 }
 
+pub async fn run_tasks_loop(worker: Arc<Worker>) {
+    let delay = Duration::from_secs(10);
+    loop {
+        info!("Sleeping for {} seconds", delay.as_secs());
+        tokio::time::sleep(delay).await;
+
+        let len = worker.queue.lock().unwrap().len();
+
+        if len == 0 {
+            info!("No tasks in queue");
+            continue;
+        }
+
+        let result = worker.run_task().await;
+        if result.error.is_some() {
+            info!("Error Running task: {}", result.error.unwrap());
+        }
+    }
+}
+
 impl Worker {
     pub fn new(name: &str) -> Worker {
         Worker {
@@ -35,6 +55,7 @@ impl Worker {
         // TODO: think of a way to deal with lock errors like this.
         self.queue.lock().unwrap().push_back(t);
     }
+
     pub async fn run_task(&self) -> task::DockerResult {
         let t = self.queue.lock().unwrap().pop_front();
         if t.is_none() {
@@ -92,7 +113,10 @@ impl Worker {
 
         let result = d.stop(&t.container_id).await;
         if result.error.is_some() {
-            error!("[WORKER] Error stopping task: {:?}", result.error.as_ref().unwrap());
+            error!(
+                "[WORKER] Error stopping task: {:?}",
+                result.error.as_ref().unwrap()
+            );
         }
         t.finish_time = Some(Utc::now());
         t.state = task::State::Completed;

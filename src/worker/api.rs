@@ -8,7 +8,7 @@ use tracing::info;
 use uuid::Uuid;
 
 use super::stats::Stats;
-use super::worker::Worker;
+use super::worker::{self, Worker};
 use crate::task::{self, Task, TaskEvent};
 
 type AppState = State<Arc<Worker>>;
@@ -25,6 +25,13 @@ impl Api {
         let listener = tokio::net::TcpListener::bind(socket).await.unwrap();
         axum::serve(listener, self.router).await.unwrap();
     }
+}
+
+pub async fn start_api(api: Api, worker: Arc<Worker>) {
+    tokio::spawn(worker::collect_stats(worker.clone()));
+    tokio::spawn(worker::run_tasks_loop(worker.clone()));
+
+    api.start().await;
 }
 
 pub fn setup(address: &str, port: u16, worker: Arc<Worker>) -> Api {
@@ -70,7 +77,10 @@ async fn stop_task(
     task_to_stop.state = task::State::Completed;
 
     let (id, container_id) = (&task_to_stop.id, &task_to_stop.container_id);
-    info!("[WORKER] added task {:?} to stop container {:?}", id, container_id);
+    info!(
+        "[WORKER] added task {:?} to stop container {:?}",
+        id, container_id
+    );
     w.add_task(task_to_stop);
 
     Ok(StatusCode::NO_CONTENT)

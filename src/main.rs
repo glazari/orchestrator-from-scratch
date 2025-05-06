@@ -16,86 +16,25 @@ use cube::worker;
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
-    let host = "localhost";
-    let port = 8901;
-    info!("Starting Cube worker on {}:{}", host, port);
+    let (whost, wport) = ("localhost", 8901);
+    let (mhost, mport) = ("localhost", 8902);
 
+    info!("Starting Cube worker on {}:{}", whost, wport);
     let worker = worker::Worker::new("Worker 1");
     let worker = Arc::new(worker);
-    let api = worker::api::setup(host, port, worker.clone());
+    let api = worker::api::setup(whost, wport, worker.clone());
 
-    tokio::spawn(worker::collect_stats(worker.clone()));
-    tokio::spawn(run_tasks(worker));
-    tokio::spawn(api.start());
+    tokio::spawn(worker::start_api(api, worker.clone()));
+
+    info!("Starting Cube manager on {}:{}", mhost, mport);
 
     // start Manager
-    let workers = vec![format!("{}:{}", host, port)];
-    let n_workers = workers.len();
+    let workers = vec![format!("{}:{}", whost, wport)];
     let manager = manager::Manager::new(workers.clone());
     let manager = Arc::new(manager);
+    let mapi = manager::api::setup(mhost, mport, manager.clone());
 
-    // adding tasks to manager
-    for i in 0..3 {
-        info!("[Manager] Adding task {}", i);
-        let task = task::Task {
-            id: Uuid::new_v4(),
-            name: format!("test-container-{}", i),
-            state: task::State::Scheduled,
-            image: "strm/helloworld-http".to_string(),
-            ..Default::default()
-        };
-
-        let task_event = task::TaskEvent {
-            id: Uuid::new_v4(),
-            state: task::State::Running,
-            task,
-            ..Default::default()
-        };
-        manager.add_task(task_event).await;
-        manager.send_work().await;
-    }
-
-    // start manager update
-    let mgr = Arc::clone(&manager);
-    tokio::spawn(async move {
-        loop {
-            info!("[Manager] Updating tasks from {} workers", n_workers);
-            mgr.update_tasks().await;
-            tokio::time::sleep(Duration::from_secs(15)).await;
-        }
-    });
-
-    // small delay so that update_tasks and task display do not contend on lock
-    tokio::time::sleep(Duration::from_millis(300)).await;
-
-    // print all tasks in manager
-    loop {
-        let task_db = manager.task_db.lock().await;
-        for (id, task) in task_db.iter() {
-            info!("Task ID: {}, State: {:?}", id, task.state);
-        }
-        tokio::time::sleep(Duration::from_secs(15)).await;
-    }
-}
-
-async fn run_tasks(w: Arc<worker::Worker>) {
-    let delay = Duration::from_secs(10);
-    loop {
-        info!("Sleeping for {} seconds", delay.as_secs());
-        tokio::time::sleep(delay).await;
-
-        let len = w.queue.lock().unwrap().len();
-
-        if len == 0 {
-            info!("No tasks in queue");
-            continue;
-        }
-
-        let result = w.run_task().await;
-        if result.error.is_some() {
-            info!("Error Running task: {}", result.error.unwrap());
-        }
-    }
+    manager::start_api(mapi, manager.clone()).await;
 }
 
 #[allow(dead_code)]

@@ -1,4 +1,7 @@
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
+use std::time::Duration;
+
 use tokio::sync::Mutex;
 
 use tracing::{error, info};
@@ -22,6 +25,24 @@ pub struct Manager {
     pub last_worker: Mutex<usize>, // to keep track of the last worker used
 }
 
+pub async fn update_tasks_loop(manager: Arc<Manager>) -> () {
+    let n_workers = manager.workers.len();
+    loop {
+        info!("[Manager] Updating tasks from {} workers", n_workers);
+        manager.update_tasks().await;
+        tokio::time::sleep(Duration::from_secs(15)).await;
+    }
+}
+
+pub async fn process_tasks(manager: Arc<Manager>) -> () {
+    loop {
+        info!("[MANAGER] Processing any tasks in the queue");
+        manager.send_work().await;
+        info!("[MANAGER] Sleeping for 10 seconds");
+        tokio::time::sleep(Duration::from_secs(10)).await;
+    }
+}
+
 impl Manager {
     // Warning, if any of these methods call one another, they might take more than
     // one lock at a time. They need to either respect the order of locking described above
@@ -40,6 +61,7 @@ impl Manager {
         *value = new_value;
         self.workers[new_value].clone()
     }
+
     pub async fn update_tasks(&self) -> () {
         for worker in &self.workers {
             info!("[MANAGER] Checking worker {} for task updates", worker);
